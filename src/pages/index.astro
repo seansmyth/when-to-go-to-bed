@@ -118,9 +118,9 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				</details>
 			</section>
 
-			<section class="card" id="reminder-card">
+			<section class="card" id="reminder-card" hidden>
 				<h2>Daily reminder</h2>
-				<p>Get a nudge at 5:08pm every day (your local time) asking when you're up tomorrow.</p>
+				<p>Get a nudge at 5:13pm every day (your local time) asking when you're up tomorrow.</p>
 				<p id="notify-status">Checking…</p>
 				<p>
 					<button type="button" id="notify-allow" hidden>Allow notifications</button>
@@ -153,6 +153,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			function placeReminderCard(on) {
 				var target = on ? optionsReminder : main;
 				if (reminderCard.parentNode !== target) target.appendChild(reminderCard);
+				reminderCard.hidden = false;
 			}
 
 
@@ -388,11 +389,13 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 				if (!pushSupported()) {
 					notifyStatus.textContent = "This browser doesn't support notifications.";
+					placeReminderCard(false);
 					return;
 				}
 
 				if (Notification.permission === 'denied') {
 					notifyStatus.textContent = 'Notifications are blocked. In Chrome, tap the icon left of the address bar → Permissions → Notifications → Allow, then reload.';
+					placeReminderCard(false);
 					return;
 				}
 
