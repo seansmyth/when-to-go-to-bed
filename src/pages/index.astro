@@ -1,5 +1,18 @@
 ---
 const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
+
+function pad(n: number) {
+	return String(n).padStart(2, '0');
+}
+
+var hourOptions: string[] = [];
+for (var h = 0; h < 24; h++) hourOptions.push(pad(h));
+
+var minuteOptions: string[] = [];
+for (var m = 0; m < 60; m += 5) minuteOptions.push(pad(m));
+
+var sleepHourOptions: string[] = [];
+for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 ---
 
 <!doctype html>
@@ -18,7 +31,8 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 		<style>
 			:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
 			body { margin: 0 auto; max-width: 32rem; padding: 1rem; }
-			input, button { font: inherit; }
+			input, button, select { font: inherit; }
+			select { padding: 0.25rem 0.4rem; }
 			[hidden] { display: none !important; }
 		</style>
 		<style is:global>
@@ -29,12 +43,15 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				--alarm: #10b981;
 			}
 
-			.timeline-status { font-weight: 600; }
+			.card.summary { margin: 1rem 0; padding: 1rem; }
+			.summary-main { margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+			.summary-sub { margin: 0.35rem 0 0; font-size: 1rem; opacity: 0.65; }
 
 			/* Bar segments are sized by duration; labels sit above/below at their start point. */
 			.timeline { margin: 1rem 0; }
 
 			.timeline-row { position: relative; height: 3.6rem; }
+			.timeline-row--bottom { height: 4.6rem; } /* room for "… until wind down" to wrap */
 
 			.timeline-bar {
 				display: flex;
@@ -87,6 +104,17 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			}
 
 			.options .card { margin: 1rem 0 0; }
+
+			#reminder-card:not([hidden]) { animation: fade-in 0.4s ease-out; }
+
+			@keyframes fade-in {
+				from { opacity: 0; transform: translateY(0.5rem); }
+				to { opacity: 1; transform: none; }
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				#reminder-card:not([hidden]) { animation: none; }
+			}
 			.card h2 { font-size: 1.2rem; }
 		</style>
 	</head>
@@ -98,8 +126,16 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				<h2>Tomorrow morning</h2>
 				<form id="plan-form">
 					<p>
-						<label for="wake-time">What time are you getting up?</label><br />
-						<input type="time" id="wake-time" required />
+						<label for="wake-hour">What time are you getting up?</label><br />
+						<select id="wake-hour" aria-label="Hour">
+							<option value="">--</option>
+							{hourOptions.map(function (value) { return <option value={value}>{value}</option>; })}
+						</select>
+						:
+						<select id="wake-minute" aria-label="Minute">
+							<option value="">--</option>
+							{minuteOptions.map(function (value) { return <option value={value}>{value}</option>; })}
+						</select>
 					</p>
 				</form>
 				<div id="plan-result" aria-live="polite" hidden></div>
@@ -108,7 +144,16 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 					<summary>Options</summary>
 					<p>
 						<label for="sleep-hours">Hours of sleep</label><br />
-						<input type="number" id="sleep-hours" form="plan-form" min="1" max="14" step="0.25" value="8" required />
+						<select id="sleep-hours" form="plan-form" aria-label="Hours">
+							{sleepHourOptions.map(function (value) {
+								return <option value={value} selected={value === '8'}>{value}</option>;
+							})}
+						</select>
+						h
+						<select id="sleep-minutes" form="plan-form" aria-label="Minutes">
+							{minuteOptions.map(function (value) { return <option value={value}>{value}</option>; })}
+						</select>
+						m
 					</p>
 					<p>
 						<label for="wind-down">Start winding down (minutes before bed)</label><br />
@@ -120,7 +165,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 			<section class="card" id="reminder-card" hidden>
 				<h2>Daily reminder</h2>
-				<p>Get a nudge at 5:17pm every day (your local time) asking when you're up tomorrow.</p>
+				<p>Get a nudge at 8pm every day (your local time) asking when you're up tomorrow.</p>
 				<p id="notify-status">Checking…</p>
 				<p>
 					<button type="button" id="notify-allow" hidden>Allow notifications</button>
@@ -135,11 +180,39 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var API = '/api/subscription';
 			var HOUR = 3600000;
 			var MINUTE = 60000;
-			var REMINDER_TIME = '17:17'; // TEST: change back to '20:00'
+			var REMINDER_TIME = '20:00';
 
 			var planForm = document.getElementById('plan-form');
-			var wakeInput = document.getElementById('wake-time');
+			var wakeHour = document.getElementById('wake-hour');
+			var wakeMinute = document.getElementById('wake-minute');
+
+			// "HH:MM", or '' until an hour is picked.
+			function getWakeTime() {
+				if (!wakeHour.value) return '';
+				return wakeHour.value + ':' + (wakeMinute.value || '00');
+			}
+
+			// Make sure a <select> can show a saved value even if it isn't in the list.
+			function selectValue(select, value, label) {
+				var exists = Array.prototype.some.call(select.options, function (option) {
+					return option.value === value;
+				});
+				if (!exists) {
+					var option = document.createElement('option');
+					option.value = value;
+					option.textContent = label || value;
+					select.appendChild(option);
+				}
+				select.value = value;
+			}
+
+			function setWakeTime(value) {
+				var parts = value.split(':');
+				selectValue(wakeHour, parts[0]);
+				selectValue(wakeMinute, parts[1]);
+			}
 			var hoursInput = document.getElementById('sleep-hours');
+			var sleepMinutesInput = document.getElementById('sleep-minutes');
 			var windDownInput = document.getElementById('wind-down');
 			var planResult = document.getElementById('plan-result');
 
@@ -152,10 +225,15 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var main = document.querySelector('main');
 
 			// Once reminders are on, tuck the card away under Options; otherwise show it on the page.
+			var remindersOnNow = false;
+			// Only show the card once you've picked a time (now or on a previous visit).
+			var hasInteracted = Boolean(loadState().wakeTime);
+
 			function placeReminderCard(on) {
+				remindersOnNow = on;
 				var target = on ? optionsReminder : main;
 				if (reminderCard.parentNode !== target) target.appendChild(reminderCard);
-				reminderCard.hidden = false;
+				reminderCard.hidden = !(on || hasInteracted);
 			}
 
 
@@ -252,15 +330,9 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			// Now → wind down → asleep → alarm, left to right, widths in proportion to time.
 			function renderPlan(plan, now) {
 				var phase = now >= plan.bed ? 'sleep' : now >= plan.windDown ? 'wind-down' : 'now';
-				var status;
-
-				if (phase === 'sleep') {
-					status = "You're past bedtime. Sleep now and you'll get " + formatDuration(plan.wake - now) + '.';
-				} else if (phase === 'wind-down') {
-					status = 'Wind down now. Asleep in ' + formatDuration(plan.bed - now) + '.';
-				} else {
-					status = 'Wind down in ' + formatDuration(plan.windDown - now) + '.';
-				}
+				var summary = el('div', 'card summary');
+				summary.appendChild(el('p', 'summary-main', 'Start winding down at ' + formatTime(plan.windDown)));
+				summary.appendChild(el('p', 'summary-sub', 'Be asleep by ' + formatTime(plan.bed)));
 
 				var start = now.getTime();
 				var total = plan.wake - start;
@@ -291,7 +363,11 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 				// Only show "now" when there's room before the "asleep" label.
 				if (phase === 'now' && awakePct + windPct >= 30) {
-					bottom.appendChild(stop('now', 'Now', formatTime(now), formatDuration(plan.windDown - now), 0));
+					var nowStop = stop('now', 'Now', formatTime(now), formatDuration(plan.windDown - now) + ' until wind down', 0);
+					// Wrap rather than run into the "Be asleep" label.
+					nowStop.style.maxWidth = 'calc(' + (awakePct + windPct).toFixed(2) + '% - 0.75rem)';
+					nowStop.style.whiteSpace = 'normal';
+					bottom.appendChild(nowStop);
 				}
 				bottom.appendChild(stop('sleep', phase === 'sleep' ? 'Asleep now' : 'Be asleep', formatTime(phase === 'sleep' ? now : plan.bed), formatDuration(plan.wake - sleepStart), awakePct + windPct));
 
@@ -300,7 +376,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				timeline.appendChild(bar);
 				timeline.appendChild(bottom);
 
-				planResult.replaceChildren(el('p', 'timeline-status', status), timeline);
+				planResult.replaceChildren(summary, timeline);
 				planResult.hidden = false;
 			}
 
@@ -380,7 +456,8 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				await api('PUT', {
 					endpoint: subscription.endpoint,
 					windDownAt: plan.windDown > now ? plan.windDown.toISOString() : null,
-					windDownBody: 'Bed at ' + formatTime(plan.bed) + ' to be up at ' + formatTime(plan.wake) + '.'
+					windDownTitle: 'Wind down at ' + formatTime(plan.windDown),
+					windDownBody: 'Time to brush your teeth, put your phone away and read, or start your wind-down routine.'
 				});
 			}
 
@@ -407,7 +484,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				var subscription = await getSubscription();
 				var on = Boolean(subscription && Notification.permission === 'granted' && loadState().remindersOn);
 
-				notifyStatus.textContent = on ? 'Reminders are on.' : 'Reminders are off.';
+				notifyStatus.textContent = on ? 'Reminders are on.' : 'Reminders are currently off.';
 				notifyAllow.hidden = on;
 				notifyOff.hidden = !on;
 				notifyTest.hidden = !on;
@@ -433,10 +510,11 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var sendTimer = null;
 
 			function readInputs() {
-				var hours = Number(hoursInput.value);
+				var hours = Number(hoursInput.value) + Number(sleepMinutesInput.value) / 60;
 				var windDownMins = Number(windDownInput.value);
-				if (!wakeInput.value || !(hours > 0) || hoursInput.value === '' || windDownInput.value === '' || !(windDownMins >= 0)) return null;
-				return { wakeTime: wakeInput.value, hours: hours, windDownMins: windDownMins };
+				var wakeTime = getWakeTime();
+				if (!wakeTime || !(hours > 0) || windDownInput.value === '' || !(windDownMins >= 0)) return null;
+				return { wakeTime: wakeTime, hours: hours, windDownMins: windDownMins };
 			}
 
 			function update(options) {
@@ -458,13 +536,23 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 			function onInput() {
 				update({ save: true });
+				if (!hasInteracted) {
+					hasInteracted = true;
+					placeReminderCard(remindersOnNow);
+				}
 			}
 
 			planForm.addEventListener('submit', function (event) {
 				event.preventDefault();
 			});
-			wakeInput.addEventListener('input', onInput);
-			hoursInput.addEventListener('input', onInput);
+			wakeHour.addEventListener('change', function () {
+				// Picking an hour first? Default the minutes to :00.
+				if (wakeHour.value && !wakeMinute.value) wakeMinute.value = '00';
+				onInput();
+			});
+			wakeMinute.addEventListener('change', onInput);
+			hoursInput.addEventListener('change', onInput);
+			sleepMinutesInput.addEventListener('change', onInput);
 			windDownInput.addEventListener('input', onInput);
 
 			notifyAllow.addEventListener('click', function () {
@@ -513,7 +601,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			}
 
 			function focusWakeInputIfFromReminder(url) {
-				if (new URL(url, location.href).searchParams.get('from') === 'reminder') wakeInput.focus();
+				if (new URL(url, location.href).searchParams.get('from') === 'reminder') wakeHour.focus();
 			}
 
 			/* ---------- Start up ---------- */
@@ -521,8 +609,12 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			(function init() {
 				var state = loadState();
 				var now = new Date();
-				if (state.wakeTime) wakeInput.value = state.wakeTime;
-				if (state.hours) hoursInput.value = state.hours;
+				if (state.wakeTime) setWakeTime(state.wakeTime);
+				if (state.hours) {
+					var savedMinutes = Math.round(state.hours * 60);
+					selectValue(hoursInput, String(Math.floor(savedMinutes / 60)));
+					selectValue(sleepMinutesInput, String(savedMinutes % 60).padStart(2, '0'));
+				}
 				if (state.windDownMins != null) windDownInput.value = state.windDownMins;
 
 				// Still before the alarm you set last time? Show that plan again.

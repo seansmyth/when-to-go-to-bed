@@ -1,5 +1,5 @@
 // PUT    /api/subscription  { subscription, reminderTime, timeZone }  -> save / update reminder
-// PUT    /api/subscription  { endpoint, windDownAt, windDownBody }    -> tonight's wind-down nudge
+// PUT    /api/subscription  { endpoint, windDownAt, windDownTitle, windDownBody } -> tonight's wind-down nudge
 // POST   /api/subscription  { endpoint }                              -> send a test notification now
 // DELETE /api/subscription  { endpoint }                              -> stop everything
 import webpush from 'web-push';
@@ -87,6 +87,7 @@ export default async function handler(request) {
 	if (body.windDownAt !== undefined) {
 		if (body.windDownAt !== null && isNaN(Date.parse(body.windDownAt))) return json({ error: 'Invalid windDownAt' }, 400);
 		record.windDownAt = body.windDownAt;
+		record.windDownTitle = String(body.windDownTitle || '').slice(0, 100);
 		record.windDownBody = String(body.windDownBody || '').slice(0, 200);
 		record.windDownSent = false;
 		record.planSetAt = new Date().toISOString();

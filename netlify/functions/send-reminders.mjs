@@ -48,7 +48,7 @@ export default async function handler() {
 			if (now.getTime() >= windDownAt) {
 				if (now.getTime() - windDownAt < 30 * MINUTE) {
 					var result = await send(record, {
-						title: 'Start winding down',
+						title: record.windDownTitle || 'Start winding down',
 						body: record.windDownBody,
 						url: '/',
 						tag: 'wind-down'
