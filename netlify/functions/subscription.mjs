@@ -1,6 +1,8 @@
 // PUT    /api/subscription  { subscription, reminderTime, timeZone }  -> save / update reminder
 // PUT    /api/subscription  { endpoint, windDownAt, windDownBody }    -> tonight's wind-down nudge
+// POST   /api/subscription  { endpoint }                              -> send a test notification now
 // DELETE /api/subscription  { endpoint }                              -> stop everything
+import webpush from 'web-push';
 import { subscriptionsStore, keyFor, isValidTimeZone } from '../lib/shared.mjs';
 
 export const config = { path: '/api/subscription' };
@@ -33,6 +35,26 @@ export default async function handler(request) {
 		return json({ ok: true });
 	}
 
+	if (request.method === 'POST') {
+		var saved = await store.get(key, { type: 'json' });
+		if (!saved || !saved.subscription) return json({ error: 'Subscription not saved on the server. Turn reminders off and on again.' }, 404);
+		if (!process.env.PUBLIC_VAPID_KEY || !process.env.VAPID_PRIVATE_KEY) {
+			return json({ error: 'PUBLIC_VAPID_KEY / VAPID_PRIVATE_KEY are not set for Functions in Netlify.' }, 500);
+		}
+		try {
+			webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:you@example.com', process.env.PUBLIC_VAPID_KEY, process.env.VAPID_PRIVATE_KEY);
+			await webpush.sendNotification(saved.subscription, JSON.stringify({
+				title: 'Test notification',
+				body: 'Reminder at ' + saved.reminderTime + ' (' + saved.timeZone + '). Push is working.',
+				url: '/?from=reminder',
+				tag: 'test'
+			}), { TTL: 600 });
+		} catch (error) {
+			return json({ error: 'Push failed: ' + (error.statusCode || '') + ' ' + (error.body || error.message) }, 502);
+		}
+		return json({ ok: true, reminderTime: saved.reminderTime, timeZone: saved.timeZone });
+	}
+
 	if (request.method !== 'PUT') {
 		return json({ error: 'Method not allowed' }, 405);
 	}
@@ -52,6 +74,8 @@ export default async function handler(request) {
 
 	if (body.reminderTime !== undefined) {
 		if (!/^\d{2}:\d{2}$/.test(body.reminderTime)) return json({ error: 'Invalid reminderTime' }, 400);
+		// A new time counts as a fresh reminder, even if one already went out today.
+		if (record.reminderTime !== body.reminderTime) delete record.lastReminderDate;
 		record.reminderTime = body.reminderTime;
 	}
 

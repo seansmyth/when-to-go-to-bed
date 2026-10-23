@@ -1,10 +1,10 @@
-// Runs every 5 minutes. Sends:
+// Runs every minute. Sends:
 //  - the daily "what time are you up tomorrow?" reminder at each subscriber's chosen local time
 //  - a "start winding down" nudge at the wind-down time worked out in the app
 import webpush from 'web-push';
 import { subscriptionsStore, localParts, timeToMinutes } from '../lib/shared.mjs';
 
-export const config = { schedule: '*/5 * * * *' };
+export const config = { schedule: '* * * * *' };
 
 var MINUTE = 60000;
 var HOUR = 60 * MINUTE;
@@ -61,22 +61,18 @@ export default async function handler() {
 		}
 
 		// Daily reminder, once per local day, within an hour of the chosen time.
-		// Skipped if you've already worked out tonight's bedtime in the last 6 hours.
 		if (!gone && record.reminderTime) {
 			var local = localParts(now, record.timeZone || 'Europe/Dublin');
 			var target = timeToMinutes(record.reminderTime);
-			var alreadyPlanned = record.planSetAt && now.getTime() - Date.parse(record.planSetAt) < 6 * HOUR;
 
 			if (record.lastReminderDate !== local.dateKey && local.minutes >= target && local.minutes < target + 60) {
-				if (!alreadyPlanned) {
-					var reminderResult = await send(record, {
-						title: 'What time are you up tomorrow?',
-						body: 'Tap to work out your bedtime.',
-						url: '/?from=reminder',
-						tag: 'daily-reminder'
-					});
-					gone = reminderResult === 'gone';
-				}
+				var reminderResult = await send(record, {
+					title: 'What time are you up tomorrow?',
+					body: 'Tap to work out your bedtime.',
+					url: '/?from=reminder',
+					tag: 'daily-reminder'
+				});
+				gone = reminderResult === 'gone';
 				record.lastReminderDate = local.dateKey;
 				changed = true;
 			}

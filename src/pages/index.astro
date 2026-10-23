@@ -120,11 +120,12 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 			<section class="card" id="reminder-card" hidden>
 				<h2>Daily reminder</h2>
-				<p>Get a nudge at 5:13pm every day (your local time) asking when you're up tomorrow.</p>
+				<p>Get a nudge at 5:17pm every day (your local time) asking when you're up tomorrow.</p>
 				<p id="notify-status">Checking…</p>
 				<p>
 					<button type="button" id="notify-allow" hidden>Allow notifications</button>
 					<button type="button" id="notify-off" hidden>Turn off</button>
+					<button type="button" id="notify-test" hidden>Send test notification</button>
 				</p>
 			</section>
 		</main>
@@ -134,7 +135,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var API = '/api/subscription';
 			var HOUR = 3600000;
 			var MINUTE = 60000;
-			var REMINDER_TIME = '17:13'; // TEST: change back to '20:00'
+			var REMINDER_TIME = '17:17'; // TEST: change back to '20:00'
 
 			var planForm = document.getElementById('plan-form');
 			var wakeInput = document.getElementById('wake-time');
@@ -145,6 +146,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var notifyStatus = document.getElementById('notify-status');
 			var notifyAllow = document.getElementById('notify-allow');
 			var notifyOff = document.getElementById('notify-off');
+			var notifyTest = document.getElementById('notify-test');
 			var reminderCard = document.getElementById('reminder-card');
 			var optionsReminder = document.getElementById('options-reminder');
 			var main = document.querySelector('main');
@@ -327,7 +329,10 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 						? "The reminder API isn't running. Use `npx netlify dev` instead of `npm run dev`."
 						: "The reminder API wasn't found (404). Check the Netlify functions deployed.");
 				}
-				if (!response.ok) throw new Error('Server said ' + response.status);
+				if (!response.ok) {
+					var detail = await response.json().catch(function () { return {}; });
+					throw new Error(detail.error || 'Server said ' + response.status);
+				}
 				return response.json();
 			}
 
@@ -405,6 +410,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				notifyStatus.textContent = on ? 'Reminders are on.' : 'Reminders are off.';
 				notifyAllow.hidden = on;
 				notifyOff.hidden = !on;
+				notifyTest.hidden = !on;
 				placeReminderCard(on);
 			}
 
@@ -471,6 +477,22 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 						alert(error.message);
 					})
 					.finally(refreshNotifyStatus);
+			});
+
+			notifyTest.addEventListener('click', function () {
+				notifyStatus.textContent = 'Sending…';
+				syncTimeZone()
+					.then(getSubscription)
+					.then(function (subscription) {
+						if (!subscription) throw new Error('No push subscription in this browser. Turn reminders off and on again.');
+						return api('POST', { endpoint: subscription.endpoint });
+					})
+					.then(function (result) {
+						notifyStatus.textContent = 'Test sent. Server has your reminder at ' + result.reminderTime + ' (' + result.timeZone + ').';
+					})
+					.catch(function (error) {
+						notifyStatus.textContent = 'Test failed: ' + error.message;
+					});
 			});
 
 			notifyOff.addEventListener('click', function () {
