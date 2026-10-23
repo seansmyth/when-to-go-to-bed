@@ -5,9 +5,6 @@ function pad(n: number) {
 	return String(n).padStart(2, '0');
 }
 
-var hourOptions: string[] = [];
-for (var h = 0; h < 24; h++) hourOptions.push(pad(h));
-
 var minuteOptions: string[] = [];
 for (var m = 0; m < 60; m += 5) minuteOptions.push(pad(m));
 
@@ -45,6 +42,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 
 			.card.summary { margin: 1rem 0; padding: 1rem; }
 			.summary-main { margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+			.summary-countdown { font-size: 1rem; font-weight: 400; opacity: 0.65; white-space: nowrap; }
 			.summary-sub { margin: 0.35rem 0 0; font-size: 1rem; opacity: 0.65; }
 
 			/* Bar segments are sized by duration; labels sit above/below at their start point. */
@@ -126,16 +124,8 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 				<h2>Tomorrow morning</h2>
 				<form id="plan-form">
 					<p>
-						<label for="wake-hour">What time are you getting up?</label><br />
-						<select id="wake-hour" aria-label="Hour">
-							<option value="">--</option>
-							{hourOptions.map(function (value) { return <option value={value}>{value}</option>; })}
-						</select>
-						:
-						<select id="wake-minute" aria-label="Minute">
-							<option value="">--</option>
-							{minuteOptions.map(function (value) { return <option value={value}>{value}</option>; })}
-						</select>
+						<label for="wake-time">What time are you getting up?</label><br />
+						<input type="time" id="wake-time" required />
 					</p>
 				</form>
 				<div id="plan-result" aria-live="polite" hidden></div>
@@ -183,13 +173,11 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			var REMINDER_TIME = '20:00';
 
 			var planForm = document.getElementById('plan-form');
-			var wakeHour = document.getElementById('wake-hour');
-			var wakeMinute = document.getElementById('wake-minute');
+			var wakeInput = document.getElementById('wake-time');
 
-			// "HH:MM", or '' until an hour is picked.
+			// "HH:MM", or '' until a time is picked.
 			function getWakeTime() {
-				if (!wakeHour.value) return '';
-				return wakeHour.value + ':' + (wakeMinute.value || '00');
+				return wakeInput.value;
 			}
 
 			// Make sure a <select> can show a saved value even if it isn't in the list.
@@ -207,9 +195,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			}
 
 			function setWakeTime(value) {
-				var parts = value.split(':');
-				selectValue(wakeHour, parts[0]);
-				selectValue(wakeMinute, parts[1]);
+				wakeInput.value = value;
 			}
 			var hoursInput = document.getElementById('sleep-hours');
 			var sleepMinutesInput = document.getElementById('sleep-minutes');
@@ -286,6 +272,17 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 				return h + 'h' + (m ? ' ' + m + 'm' : '');
 			}
 
+			// "7 hours 9 mins", "1 hour", "45 mins"
+			function formatLongDuration(ms) {
+				var mins = Math.max(0, Math.round(ms / MINUTE));
+				var h = Math.floor(mins / 60);
+				var m = mins % 60;
+				var parts = [];
+				if (h) parts.push(h + (h === 1 ? ' hour' : ' hours'));
+				if (m || !h) parts.push(m + (m === 1 ? ' min' : ' mins'));
+				return parts.join(' ');
+			}
+
 			// Next time the clock shows this time (today if still ahead, otherwise tomorrow).
 			function nextOccurrence(value, now) {
 				var t = parseTime(value);
@@ -331,7 +328,12 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			function renderPlan(plan, now) {
 				var phase = now >= plan.bed ? 'sleep' : now >= plan.windDown ? 'wind-down' : 'now';
 				var summary = el('div', 'card summary');
-				summary.appendChild(el('p', 'summary-main', 'Start winding down at ' + formatTime(plan.windDown)));
+				var headline = el('p', 'summary-main', 'Start winding down at ' + formatTime(plan.windDown));
+				if (plan.windDown > now) {
+					headline.appendChild(document.createTextNode(' '));
+					headline.appendChild(el('span', 'summary-countdown', '(in ' + formatLongDuration(plan.windDown - now) + ')'));
+				}
+				summary.appendChild(headline);
 				summary.appendChild(el('p', 'summary-sub', 'Be asleep by ' + formatTime(plan.bed)));
 
 				var start = now.getTime();
@@ -545,12 +547,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			planForm.addEventListener('submit', function (event) {
 				event.preventDefault();
 			});
-			wakeHour.addEventListener('change', function () {
-				// Picking an hour first? Default the minutes to :00.
-				if (wakeHour.value && !wakeMinute.value) wakeMinute.value = '00';
-				onInput();
-			});
-			wakeMinute.addEventListener('change', onInput);
+			wakeInput.addEventListener('input', onInput);
 			hoursInput.addEventListener('change', onInput);
 			sleepMinutesInput.addEventListener('change', onInput);
 			windDownInput.addEventListener('input', onInput);
@@ -601,7 +598,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			}
 
 			function focusWakeInputIfFromReminder(url) {
-				if (new URL(url, location.href).searchParams.get('from') === 'reminder') wakeHour.focus();
+				if (new URL(url, location.href).searchParams.get('from') === 'reminder') wakeInput.focus();
 			}
 
 			/* ---------- Start up ---------- */
