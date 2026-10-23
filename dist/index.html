@@ -1,0 +1,333 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-lcdefpme><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#14162b"><meta name="apple-mobile-web-app-title" content="Bedtime"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><meta name="generator" content="Astro v7.4.2"><title>When to go to bed</title><style>:root{color-scheme:light dark;font-family:system-ui,sans-serif;line-height:1.5}body{max-width:32rem;margin:0 auto;padding:1rem}input[data-astro-cid-lcdefpme],button[data-astro-cid-lcdefpme]{font:inherit}[data-astro-cid-lcdefpme][hidden]{display:none!important}
+</style></head><body data-astro-cid-lcdefpme><main data-astro-cid-lcdefpme><h1 data-astro-cid-lcdefpme>When to go to bed</h1><section data-astro-cid-lcdefpme><h2 data-astro-cid-lcdefpme>Tomorrow morning</h2><form id="plan-form" data-astro-cid-lcdefpme><p data-astro-cid-lcdefpme><label for="wake-time" data-astro-cid-lcdefpme>What time are you getting up?</label><br data-astro-cid-lcdefpme><input type="time" id="wake-time" required data-astro-cid-lcdefpme></p><p data-astro-cid-lcdefpme><label for="sleep-hours" data-astro-cid-lcdefpme>Hours of sleep</label><br data-astro-cid-lcdefpme><input type="number" id="sleep-hours" min="1" max="14" step="0.25" value="8" required data-astro-cid-lcdefpme></p><p data-astro-cid-lcdefpme><label for="wind-down" data-astro-cid-lcdefpme>Start winding down (minutes before bed)</label><br data-astro-cid-lcdefpme><input type="number" id="wind-down" min="0" max="180" step="5" value="30" required data-astro-cid-lcdefpme></p><p data-astro-cid-lcdefpme><button type="submit" data-astro-cid-lcdefpme>Work it out</button></p></form><div id="plan-result" aria-live="polite" hidden data-astro-cid-lcdefpme></div></section><section data-astro-cid-lcdefpme><h2 data-astro-cid-lcdefpme>Going to bed at a set time?</h2><form id="reverse-form" data-astro-cid-lcdefpme><p data-astro-cid-lcdefpme><label for="bed-time" data-astro-cid-lcdefpme>Bedtime</label><br data-astro-cid-lcdefpme><input type="time" id="bed-time" required data-astro-cid-lcdefpme><button type="button" id="bed-now" data-astro-cid-lcdefpme>Now</button></p><p data-astro-cid-lcdefpme><button type="submit" data-astro-cid-lcdefpme>When should my alarm go off?</button></p></form><p id="reverse-result" aria-live="polite" hidden data-astro-cid-lcdefpme></p></section><section data-astro-cid-lcdefpme><h2 data-astro-cid-lcdefpme>Daily reminder</h2><p id="reminder-status" data-astro-cid-lcdefpme>Checking…</p><form id="reminder-form" data-astro-cid-lcdefpme><p data-astro-cid-lcdefpme><label for="reminder-time" data-astro-cid-lcdefpme>Ask me every day at</label><br data-astro-cid-lcdefpme><input type="time" id="reminder-time" value="20:00" required data-astro-cid-lcdefpme></p><p data-astro-cid-lcdefpme><button type="submit" id="reminder-save" data-astro-cid-lcdefpme>Turn on reminders</button><button type="button" id="reminder-off" hidden data-astro-cid-lcdefpme>Turn off</button></p></form></section></main><script>(function(){const vapidPublicKey = "BDrzvKgB9fyXnAkb1RFDkE97s6qumaNZQW_bwVxRMatH49GI0JJmIzfwKIBZWIV4JkdpwV9ZlY3zb6HiCY0umAI";
+
+			var STORAGE_KEY = 'wtgtb:v1';
+			var API = '/api/subscription';
+			var HOUR = 3600000;
+			var MINUTE = 60000;
+
+			var planForm = document.getElementById('plan-form');
+			var wakeInput = document.getElementById('wake-time');
+			var hoursInput = document.getElementById('sleep-hours');
+			var windDownInput = document.getElementById('wind-down');
+			var planResult = document.getElementById('plan-result');
+
+			var reverseForm = document.getElementById('reverse-form');
+			var bedInput = document.getElementById('bed-time');
+			var bedNowButton = document.getElementById('bed-now');
+			var reverseResult = document.getElementById('reverse-result');
+
+			var reminderForm = document.getElementById('reminder-form');
+			var reminderInput = document.getElementById('reminder-time');
+			var reminderStatus = document.getElementById('reminder-status');
+			var reminderSave = document.getElementById('reminder-save');
+			var reminderOff = document.getElementById('reminder-off');
+
+			/* ---------- Storage ---------- */
+
+			function loadState() {
+				try {
+					return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+				} catch (e) {
+					return {};
+				}
+			}
+
+			function saveState(patch) {
+				var state = Object.assign(loadState(), patch);
+				try {
+					localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+				} catch (e) {}
+				return state;
+			}
+
+			/* ---------- Time helpers ---------- */
+
+			function parseTime(value) {
+				var parts = value.split(':');
+				return { h: Number(parts[0]), m: Number(parts[1]) };
+			}
+
+			function pad(n) {
+				return String(n).padStart(2, '0');
+			}
+
+			function toTimeValue(date) {
+				return pad(date.getHours()) + ':' + pad(date.getMinutes());
+			}
+
+			function formatTime(date) {
+				return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+			}
+
+			function formatDay(date, now) {
+				var today = new Date(now);
+				today.setHours(0, 0, 0, 0);
+				var day = new Date(date);
+				day.setHours(0, 0, 0, 0);
+				var diff = Math.round((day - today) / (24 * HOUR));
+				if (diff === 0) return 'today';
+				if (diff === 1) return 'tomorrow';
+				if (diff === -1) return 'yesterday';
+				return date.toLocaleDateString([], { weekday: 'long' });
+			}
+
+			function formatDuration(ms) {
+				var mins = Math.max(0, Math.round(ms / MINUTE));
+				var h = Math.floor(mins / 60);
+				var m = mins % 60;
+				if (!h) return m + 'm';
+				return h + 'h' + (m ? ' ' + m + 'm' : '');
+			}
+
+			// Next time the clock shows this time (today if still ahead, otherwise tomorrow).
+			function nextOccurrence(value, now) {
+				var t = parseTime(value);
+				var date = new Date(now);
+				date.setHours(t.h, t.m, 0, 0);
+				if (date <= now) date.setDate(date.getDate() + 1);
+				return date;
+			}
+
+			// The occurrence of this time closest to now (within ±12h), for "bedtime" inputs.
+			function nearestOccurrence(value, now) {
+				var t = parseTime(value);
+				var date = new Date(now);
+				date.setHours(t.h, t.m, 0, 0);
+				if (date - now < -12 * HOUR) date.setDate(date.getDate() + 1);
+				if (date - now > 12 * HOUR) date.setDate(date.getDate() - 1);
+				return date;
+			}
+
+			function calculatePlan(wakeValue, hours, windDownMins, now) {
+				var wake = nextOccurrence(wakeValue, now);
+				var bed = new Date(wake.getTime() - hours * HOUR);
+				var windDown = new Date(bed.getTime() - windDownMins * MINUTE);
+				return { wake: wake, bed: bed, windDown: windDown, hours: hours };
+			}
+
+			/* ---------- Rendering ---------- */
+
+			function line(text) {
+				var p = document.createElement('p');
+				p.textContent = text;
+				return p;
+			}
+
+			function renderPlan(plan, now) {
+				var nodes = [
+					line('Alarm: ' + formatTime(plan.wake) + ' ' + formatDay(plan.wake, now)),
+					line('Start winding down: ' + formatTime(plan.windDown)),
+					line('Be asleep by: ' + formatTime(plan.bed))
+				];
+
+				if (now >= plan.bed) {
+					nodes.push(line("You're past bedtime. If you sleep now you'll get " + formatDuration(plan.wake - now) + '.'));
+				} else if (now >= plan.windDown) {
+					nodes.push(line('Time to wind down. Bed in ' + formatDuration(plan.bed - now) + '.'));
+				} else {
+					nodes.push(line('Wind down in ' + formatDuration(plan.windDown - now) + '.'));
+				}
+
+				planResult.replaceChildren.apply(planResult, nodes);
+				planResult.hidden = false;
+			}
+
+			function renderReverse(bed, hours, now) {
+				var alarm = new Date(bed.getTime() + hours * HOUR);
+				reverseResult.textContent =
+					'Set your alarm for ' + formatTime(alarm) + ' ' + formatDay(alarm, now) +
+					' to get ' + formatDuration(hours * HOUR) + '.';
+				reverseResult.hidden = false;
+			}
+
+			/* ---------- Push / API ---------- */
+
+			function isStandalone() {
+				return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+			}
+
+			function isIOS() {
+				return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+					(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+			}
+
+			function pushSupported() {
+				return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+			}
+
+			function urlBase64ToUint8Array(base64) {
+				var padding = '='.repeat((4 - (base64.length % 4)) % 4);
+				var raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+				var output = new Uint8Array(raw.length);
+				for (var i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+				return output;
+			}
+
+			async function api(method, body) {
+				var response = await fetch(API, {
+					method: method,
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body)
+				});
+				if (!response.ok) throw new Error('Server said ' + response.status);
+				return response.json();
+			}
+
+			async function getSubscription() {
+				if (!pushSupported()) return null;
+				var registration = await navigator.serviceWorker.ready;
+				return registration.pushManager.getSubscription();
+			}
+
+			async function enableReminders(reminderTime) {
+				if (!vapidPublicKey) throw new Error('PUBLIC_VAPID_KEY is not set, see the README.');
+
+				var permission = await Notification.requestPermission();
+				if (permission !== 'granted') throw new Error('Notifications are blocked for this site. Allow them in your browser or phone settings.');
+
+				var registration = await navigator.serviceWorker.ready;
+				var subscription = await registration.pushManager.getSubscription();
+				if (!subscription) {
+					subscription = await registration.pushManager.subscribe({
+						userVisibleOnly: true,
+						applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+					});
+				}
+
+				await api('PUT', {
+					subscription: subscription.toJSON(),
+					reminderTime: reminderTime,
+					timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+				});
+			}
+
+			async function disableReminders() {
+				var subscription = await getSubscription();
+				if (!subscription) return;
+				var endpoint = subscription.endpoint;
+				await subscription.unsubscribe();
+				await api('DELETE', { endpoint: endpoint });
+			}
+
+			// Tell the server tonight's wind-down time so it can nudge you.
+			async function sendPlan(plan) {
+				var subscription = await getSubscription();
+				if (!subscription || !navigator.onLine) return;
+				var now = new Date();
+				await api('PUT', {
+					endpoint: subscription.endpoint,
+					windDownAt: plan.windDown > now ? plan.windDown.toISOString() : null,
+					windDownBody: 'Bed at ' + formatTime(plan.bed) + ' to be up at ' + formatTime(plan.wake) + '.'
+				});
+			}
+
+			async function refreshReminderStatus() {
+				var state = loadState();
+				if (state.reminderTime) reminderInput.value = state.reminderTime;
+
+				if (!pushSupported()) {
+					reminderStatus.textContent = isIOS() && !isStandalone()
+						? 'On iPhone, add this to your Home Screen first (Share → Add to Home Screen), then open it from there to turn on reminders.'
+						: "This browser doesn't support notifications.";
+					reminderForm.hidden = true;
+					return;
+				}
+
+				var subscription = await getSubscription();
+				var on = Boolean(subscription && state.reminderTime);
+				reminderStatus.textContent = on
+					? 'Reminders are on: every day at ' + state.reminderTime + '.'
+					: 'Reminders are off.';
+				reminderSave.textContent = on ? 'Update time' : 'Turn on reminders';
+				reminderOff.hidden = !on;
+			}
+
+			/* ---------- Events ---------- */
+
+			planForm.addEventListener('submit', function (event) {
+				event.preventDefault();
+				var now = new Date();
+				var hours = Number(hoursInput.value);
+				var windDownMins = Number(windDownInput.value);
+				var plan = calculatePlan(wakeInput.value, hours, windDownMins, now);
+
+				saveState({
+					wakeTime: wakeInput.value,
+					hours: hours,
+					windDownMins: windDownMins,
+					wakeAt: plan.wake.toISOString()
+				});
+				renderPlan(plan, now);
+				sendPlan(plan).catch(function (error) {
+					console.warn('Could not send plan', error);
+				});
+			});
+
+			bedNowButton.addEventListener('click', function () {
+				bedInput.value = toTimeValue(new Date());
+				reverseForm.requestSubmit();
+			});
+
+			reverseForm.addEventListener('submit', function (event) {
+				event.preventDefault();
+				var now = new Date();
+				renderReverse(nearestOccurrence(bedInput.value, now), Number(hoursInput.value), now);
+			});
+
+			reminderForm.addEventListener('submit', function (event) {
+				event.preventDefault();
+				var time = reminderInput.value;
+				reminderStatus.textContent = 'Saving…';
+				enableReminders(time)
+					.then(function () {
+						saveState({ reminderTime: time });
+					})
+					.catch(function (error) {
+						alert(error.message);
+					})
+					.finally(refreshReminderStatus);
+			});
+
+			reminderOff.addEventListener('click', function () {
+				disableReminders()
+					.catch(function (error) {
+						console.warn('Could not unsubscribe', error);
+					})
+					.finally(function () {
+						saveState({ reminderTime: null });
+						refreshReminderStatus();
+					});
+			});
+
+			function focusWakeInputIfFromReminder(url) {
+				if (new URL(url, location.href).searchParams.get('from') === 'reminder') wakeInput.focus();
+			}
+
+			/* ---------- Start up ---------- */
+
+			(function init() {
+				var state = loadState();
+				var now = new Date();
+				if (state.wakeTime) wakeInput.value = state.wakeTime;
+				if (state.hours) hoursInput.value = state.hours;
+				if (state.windDownMins != null) windDownInput.value = state.windDownMins;
+
+				// Still before the alarm you set last time? Show that plan again.
+				if (state.wakeAt && new Date(state.wakeAt) > now) {
+					renderPlan(calculatePlan(state.wakeTime, state.hours, state.windDownMins, now), now);
+				}
+
+				if ('serviceWorker' in navigator) {
+					navigator.serviceWorker.register('/sw.js').catch(function (error) {
+						console.warn('Service worker failed', error);
+					});
+					navigator.serviceWorker.addEventListener('message', function (event) {
+						if (event.data && event.data.type === 'notification-click') focusWakeInputIfFromReminder(event.data.url);
+					});
+				}
+
+				focusWakeInputIfFromReminder(location.href);
+				refreshReminderStatus();
+			})();
+		})();</script></body></html>
