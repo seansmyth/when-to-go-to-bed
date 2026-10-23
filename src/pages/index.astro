@@ -120,7 +120,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 			<section class="card" id="reminder-card">
 				<h2>Daily reminder</h2>
-				<p>Get a nudge at 8pm every day (your local time) asking when you're up tomorrow.</p>
+				<p>Get a nudge at 5:08pm every day (your local time) asking when you're up tomorrow.</p>
 				<p id="notify-status">Checking…</p>
 				<p>
 					<button type="button" id="notify-allow" hidden>Allow notifications</button>
@@ -134,7 +134,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var API = '/api/subscription';
 			var HOUR = 3600000;
 			var MINUTE = 60000;
-			var REMINDER_TIME = '20:00';
+			var REMINDER_TIME = '17:08'; // TEST: change back to '20:00'
 
 			var planForm = document.getElementById('plan-form');
 			var wakeInput = document.getElementById('wake-time');
@@ -410,11 +410,13 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			async function syncTimeZone() {
 				var state = loadState();
 				var timeZone = currentTimeZone();
-				if (!state.remindersOn || state.timeZone === timeZone || !navigator.onLine) return;
+				if (!state.remindersOn || !navigator.onLine) return;
+				if (state.timeZone === timeZone && state.reminderTime === REMINDER_TIME) return;
 				var subscription = await getSubscription();
 				if (!subscription) return;
-				await api('PUT', { endpoint: subscription.endpoint, timeZone: timeZone });
-				saveState({ timeZone: timeZone });
+				// Also pushes a changed REMINDER_TIME to anyone already subscribed.
+				await api('PUT', { endpoint: subscription.endpoint, timeZone: timeZone, reminderTime: REMINDER_TIME });
+				saveState({ timeZone: timeZone, reminderTime: REMINDER_TIME });
 			}
 
 			/* ---------- Events ---------- */
@@ -460,7 +462,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				notifyStatus.textContent = 'Turning on…';
 				enableReminders()
 					.then(function () {
-						saveState({ remindersOn: true, timeZone: currentTimeZone() });
+						saveState({ remindersOn: true, timeZone: currentTimeZone(), reminderTime: REMINDER_TIME });
 					})
 					.catch(function (error) {
 						alert(error.message);
