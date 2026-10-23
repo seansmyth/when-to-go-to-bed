@@ -76,6 +76,18 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			.is-wind-down { --colour: var(--wind-down); }
 			.is-sleep { --colour: var(--sleep); }
 			.is-alarm { --colour: var(--alarm); }
+
+			.options summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0; }
+
+			.card {
+				margin: 1.5rem 0;
+				padding: 0 1rem;
+				border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+				border-radius: 0.75rem;
+			}
+
+			.options .card { margin: 1rem 0 0; }
+			.card h2 { font-size: 1.2rem; }
 		</style>
 	</head>
 	<body>
@@ -89,19 +101,24 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 						<label for="wake-time">What time are you getting up?</label><br />
 						<input type="time" id="wake-time" required />
 					</p>
+				</form>
+				<div id="plan-result" aria-live="polite" hidden></div>
+
+				<details class="options" id="options">
+					<summary>Options</summary>
 					<p>
 						<label for="sleep-hours">Hours of sleep</label><br />
-						<input type="number" id="sleep-hours" min="1" max="14" step="0.25" value="8" required />
+						<input type="number" id="sleep-hours" form="plan-form" min="1" max="14" step="0.25" value="8" required />
 					</p>
 					<p>
 						<label for="wind-down">Start winding down (minutes before bed)</label><br />
-						<input type="number" id="wind-down" min="0" max="180" step="5" value="30" required />
+						<input type="number" id="wind-down" form="plan-form" min="0" max="180" step="5" value="30" required />
 					</p>
-				</form>
-				<div id="plan-result" aria-live="polite" hidden></div>
+					<div id="options-reminder"></div>
+				</details>
 			</section>
 
-			<section>
+			<section class="card" id="reminder-card">
 				<h2>Daily reminder</h2>
 				<p>Get a nudge at 8pm every day (your local time) asking when you're up tomorrow.</p>
 				<p id="notify-status">Checking…</p>
@@ -128,6 +145,15 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var notifyStatus = document.getElementById('notify-status');
 			var notifyAllow = document.getElementById('notify-allow');
 			var notifyOff = document.getElementById('notify-off');
+			var reminderCard = document.getElementById('reminder-card');
+			var optionsReminder = document.getElementById('options-reminder');
+			var main = document.querySelector('main');
+
+			// Once reminders are on, tuck the card away under Options; otherwise show it on the page.
+			function placeReminderCard(on) {
+				var target = on ? optionsReminder : main;
+				if (reminderCard.parentNode !== target) target.appendChild(reminderCard);
+			}
 
 
 			/* ---------- Storage ---------- */
@@ -376,6 +402,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				notifyStatus.textContent = on ? 'Reminders are on.' : 'Reminders are off.';
 				notifyAllow.hidden = on;
 				notifyOff.hidden = !on;
+				placeReminderCard(on);
 			}
 
 			// Travelled since turning reminders on? Tell the server your new time zone
