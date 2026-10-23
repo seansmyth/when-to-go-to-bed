@@ -21,6 +21,62 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			input, button { font: inherit; }
 			[hidden] { display: none !important; }
 		</style>
+		<style is:global>
+			:root {
+				--awake: #9ca3af;
+				--wind-down: #f59e0b;
+				--sleep: #6366f1;
+				--alarm: #10b981;
+			}
+
+			.timeline-status { font-weight: 600; }
+
+			/* Bar segments are sized by duration; labels sit above/below at their start point. */
+			.timeline { margin: 1rem 0; }
+
+			.timeline-row { position: relative; height: 3.6rem; }
+
+			.timeline-bar {
+				display: flex;
+				height: 0.6rem;
+				border-radius: 999px;
+				overflow: hidden;
+				background: var(--awake);
+			}
+
+			.timeline-segment { height: 100%; background: var(--colour); }
+
+			.timeline-stop {
+				position: absolute;
+				max-width: 50%;
+				padding-left: 0.35rem;
+				border-left: 2px solid var(--colour);
+				font-size: 0.8rem;
+				line-height: 1.2;
+				white-space: nowrap;
+			}
+
+			.timeline-row--top .timeline-stop { bottom: 0.25rem; padding-bottom: 0; }
+			.timeline-row--bottom .timeline-stop { top: 0.25rem; }
+
+			.timeline-stop--end {
+				right: 0;
+				padding-left: 0;
+				padding-right: 0.35rem;
+				border-left: 0;
+				border-right: 2px solid var(--colour);
+				text-align: right;
+			}
+
+			.timeline-label { display: block; opacity: 0.75; }
+			.timeline-time { display: block; font-size: 1rem; font-weight: 600; }
+			.timeline-length { display: block; opacity: 0.75; }
+
+			.is-now { --colour: var(--awake); }
+			.is-wind-down { --colour: var(--wind-down); }
+			.is-sleep { --colour: var(--sleep); }
+			.is-alarm { --colour: var(--alarm); }
+		</style>
 	</head>
 	<body>
 		<main>
@@ -41,12 +97,19 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 						<label for="wind-down">Start winding down (minutes before bed)</label><br />
 						<input type="number" id="wind-down" min="0" max="180" step="5" value="30" required />
 					</p>
-					<p><button type="submit">Work it out</button></p>
 				</form>
 				<div id="plan-result" aria-live="polite" hidden></div>
 			</section>
 
-			
+			<section>
+				<h2>Daily reminder</h2>
+				<p>Get a nudge at 8pm every day (your local time) asking when you're up tomorrow.</p>
+				<p id="notify-status">Checking…</p>
+				<p>
+					<button type="button" id="notify-allow" hidden>Allow notifications</button>
+					<button type="button" id="notify-off" hidden>Turn off</button>
+				</p>
+			</section>
 		</main>
 
 		<script is:inline define:vars={{ vapidPublicKey }}>
@@ -54,6 +117,7 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var API = '/api/subscription';
 			var HOUR = 3600000;
 			var MINUTE = 60000;
+			var REMINDER_TIME = '20:00';
 
 			var planForm = document.getElementById('plan-form');
 			var wakeInput = document.getElementById('wake-time');
@@ -61,16 +125,10 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			var windDownInput = document.getElementById('wind-down');
 			var planResult = document.getElementById('plan-result');
 
-			var reverseForm = document.getElementById('reverse-form');
-			var bedInput = document.getElementById('bed-time');
-			var bedNowButton = document.getElementById('bed-now');
-			var reverseResult = document.getElementById('reverse-result');
+			var notifyStatus = document.getElementById('notify-status');
+			var notifyAllow = document.getElementById('notify-allow');
+			var notifyOff = document.getElementById('notify-off');
 
-			var reminderForm = document.getElementById('reminder-form');
-			var reminderInput = document.getElementById('reminder-time');
-			var reminderStatus = document.getElementById('reminder-status');
-			var reminderSave = document.getElementById('reminder-save');
-			var reminderOff = document.getElementById('reminder-off');
 
 			/* ---------- Storage ---------- */
 
@@ -95,14 +153,6 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 			function parseTime(value) {
 				var parts = value.split(':');
 				return { h: Number(parts[0]), m: Number(parts[1]) };
-			}
-
-			function pad(n) {
-				return String(n).padStart(2, '0');
-			}
-
-			function toTimeValue(date) {
-				return pad(date.getHours()) + ':' + pad(date.getMinutes());
 			}
 
 			function formatTime(date) {
@@ -138,16 +188,6 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				return date;
 			}
 
-			// The occurrence of this time closest to now (within ±12h), for "bedtime" inputs.
-			function nearestOccurrence(value, now) {
-				var t = parseTime(value);
-				var date = new Date(now);
-				date.setHours(t.h, t.m, 0, 0);
-				if (date - now < -12 * HOUR) date.setDate(date.getDate() + 1);
-				if (date - now > 12 * HOUR) date.setDate(date.getDate() - 1);
-				return date;
-			}
-
 			function calculatePlan(wakeValue, hours, windDownMins, now) {
 				var wake = nextOccurrence(wakeValue, now);
 				var bed = new Date(wake.getTime() - hours * HOUR);
@@ -157,49 +197,85 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 			/* ---------- Rendering ---------- */
 
-			function line(text) {
-				var p = document.createElement('p');
-				p.textContent = text;
-				return p;
+			function el(tag, className, text) {
+				var node = document.createElement(tag);
+				if (className) node.className = className;
+				if (text !== undefined) node.textContent = text;
+				return node;
 			}
 
-			function renderPlan(plan, now) {
-				var nodes = [
-					line('Alarm: ' + formatTime(plan.wake) + ' ' + formatDay(plan.wake, now)),
-					line('Start winding down: ' + formatTime(plan.windDown)),
-					line('Be asleep by: ' + formatTime(plan.bed))
-				];
+			function stop(phase, label, time, length, percent) {
+				var item = el('div', 'timeline-stop is-' + phase + (percent === null ? ' timeline-stop--end' : ''));
+				// Keep labels from running off the right-hand edge.
+				if (percent !== null) item.style.left = 'min(' + percent.toFixed(2) + '%, calc(100% - 6.5rem))';
+				item.appendChild(el('span', 'timeline-label', label));
+				item.appendChild(el('span', 'timeline-time', time));
+				if (length) item.appendChild(el('span', 'timeline-length', length));
+				return item;
+			}
 
-				if (now >= plan.bed) {
-					nodes.push(line("You're past bedtime. If you sleep now you'll get " + formatDuration(plan.wake - now) + '.'));
-				} else if (now >= plan.windDown) {
-					nodes.push(line('Time to wind down. Bed in ' + formatDuration(plan.bed - now) + '.'));
+			function segment(phase, percent) {
+				var node = el('span', 'timeline-segment is-' + phase);
+				node.style.width = percent.toFixed(2) + '%';
+				return node;
+			}
+
+			// Now → wind down → asleep → alarm, left to right, widths in proportion to time.
+			function renderPlan(plan, now) {
+				var phase = now >= plan.bed ? 'sleep' : now >= plan.windDown ? 'wind-down' : 'now';
+				var status;
+
+				if (phase === 'sleep') {
+					status = "You're past bedtime. Sleep now and you'll get " + formatDuration(plan.wake - now) + '.';
+				} else if (phase === 'wind-down') {
+					status = 'Wind down now. Asleep in ' + formatDuration(plan.bed - now) + '.';
 				} else {
-					nodes.push(line('Wind down in ' + formatDuration(plan.windDown - now) + '.'));
+					status = 'Wind down in ' + formatDuration(plan.windDown - now) + '.';
 				}
 
-				planResult.replaceChildren.apply(planResult, nodes);
+				var start = now.getTime();
+				var total = plan.wake - start;
+				var windStart = Math.max(start, plan.windDown.getTime());
+				var sleepStart = Math.max(start, plan.bed.getTime());
+
+				function pct(ms) {
+					return total > 0 ? (ms / total) * 100 : 0;
+				}
+
+				var awakePct = pct(windStart - start);
+				var windPct = pct(sleepStart - windStart);
+				var sleepPct = pct(plan.wake - sleepStart);
+
+				var top = el('div', 'timeline-row timeline-row--top');
+				var bar = el('div', 'timeline-bar');
+				var bottom = el('div', 'timeline-row timeline-row--bottom');
+
+				if (awakePct > 0) bar.appendChild(segment('now', awakePct));
+				if (windPct > 0) bar.appendChild(segment('wind-down', windPct));
+				bar.appendChild(segment('sleep', sleepPct));
+
+				// Top row: wind down + alarm. Bottom row: now + asleep. Alternating stops them overlapping.
+				if (phase !== 'sleep') {
+					top.appendChild(stop('wind-down', 'Wind down', formatTime(plan.windDown), formatDuration(plan.bed - plan.windDown), awakePct));
+				}
+				top.appendChild(stop('alarm', 'Alarm', formatTime(plan.wake), formatDay(plan.wake, now), null));
+
+				// Only show "now" when there's room before the "asleep" label.
+				if (phase === 'now' && awakePct + windPct >= 30) {
+					bottom.appendChild(stop('now', 'Now', formatTime(now), formatDuration(plan.windDown - now), 0));
+				}
+				bottom.appendChild(stop('sleep', phase === 'sleep' ? 'Asleep now' : 'Be asleep', formatTime(phase === 'sleep' ? now : plan.bed), formatDuration(plan.wake - sleepStart), awakePct + windPct));
+
+				var timeline = el('div', 'timeline');
+				timeline.appendChild(top);
+				timeline.appendChild(bar);
+				timeline.appendChild(bottom);
+
+				planResult.replaceChildren(el('p', 'timeline-status', status), timeline);
 				planResult.hidden = false;
 			}
 
-			function renderReverse(bed, hours, now) {
-				var alarm = new Date(bed.getTime() + hours * HOUR);
-				reverseResult.textContent =
-					'Set your alarm for ' + formatTime(alarm) + ' ' + formatDay(alarm, now) +
-					' to get ' + formatDuration(hours * HOUR) + '.';
-				reverseResult.hidden = false;
-			}
-
 			/* ---------- Push / API ---------- */
-
-			function isStandalone() {
-				return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-			}
-
-			function isIOS() {
-				return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-					(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-			}
 
 			function pushSupported() {
 				return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -219,6 +295,11 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify(body)
 				});
+				if (response.status === 404) {
+					throw new Error(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+						? "The reminder API isn't running. Use `npx netlify dev` instead of `npm run dev`."
+						: "The reminder API wasn't found (404). Check the Netlify functions deployed.");
+				}
 				if (!response.ok) throw new Error('Server said ' + response.status);
 				return response.json();
 			}
@@ -229,11 +310,11 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				return registration ? registration.pushManager.getSubscription() : null;
 			}
 
-			async function enableReminders(reminderTime) {
+			async function enableReminders() {
 				if (!vapidPublicKey) throw new Error('PUBLIC_VAPID_KEY is not set, see the README.');
 
 				var permission = await Notification.requestPermission();
-				if (permission !== 'granted') throw new Error('Notifications are blocked for this site. Allow them in your browser or phone settings.');
+				if (permission !== 'granted') throw new Error('Notifications were not allowed.');
 
 				var registration = await navigator.serviceWorker.ready;
 				var subscription = await registration.pushManager.getSubscription();
@@ -246,8 +327,8 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 
 				await api('PUT', {
 					subscription: subscription.toJSON(),
-					reminderTime: reminderTime,
-					timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+					reminderTime: REMINDER_TIME,
+					timeZone: currentTimeZone()
 				});
 			}
 
@@ -271,83 +352,111 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				});
 			}
 
-			async function refreshReminderStatus() {
-				var state = loadState();
-				if (state.reminderTime) reminderInput.value = state.reminderTime;
+			function currentTimeZone() {
+				return Intl.DateTimeFormat().resolvedOptions().timeZone;
+			}
+
+			async function refreshNotifyStatus() {
+				notifyAllow.hidden = true;
+				notifyOff.hidden = true;
 
 				if (!pushSupported()) {
-					reminderStatus.textContent = isIOS() && !isStandalone()
-						? 'On iPhone, add this to your Home Screen first (Share → Add to Home Screen), then open it from there to turn on reminders.'
-						: "This browser doesn't support notifications.";
-					reminderForm.hidden = true;
+					notifyStatus.textContent = "This browser doesn't support notifications.";
+					return;
+				}
+
+				if (Notification.permission === 'denied') {
+					notifyStatus.textContent = 'Notifications are blocked. In Chrome, tap the icon left of the address bar → Permissions → Notifications → Allow, then reload.';
 					return;
 				}
 
 				var subscription = await getSubscription();
-				var on = Boolean(subscription && state.reminderTime);
-				reminderStatus.textContent = on
-					? 'Reminders are on: every day at ' + state.reminderTime + '.'
-					: 'Reminders are off.';
-				reminderSave.textContent = on ? 'Update time' : 'Turn on reminders';
-				reminderOff.hidden = !on;
+				var on = Boolean(subscription && Notification.permission === 'granted' && loadState().remindersOn);
+
+				notifyStatus.textContent = on ? 'Reminders are on.' : 'Reminders are off.';
+				notifyAllow.hidden = on;
+				notifyOff.hidden = !on;
+			}
+
+			// Travelled since turning reminders on? Tell the server your new time zone
+			// so the reminder still lands at 8pm wherever you are.
+			async function syncTimeZone() {
+				var state = loadState();
+				var timeZone = currentTimeZone();
+				if (!state.remindersOn || state.timeZone === timeZone || !navigator.onLine) return;
+				var subscription = await getSubscription();
+				if (!subscription) return;
+				await api('PUT', { endpoint: subscription.endpoint, timeZone: timeZone });
+				saveState({ timeZone: timeZone });
 			}
 
 			/* ---------- Events ---------- */
 
-			planForm.addEventListener('submit', function (event) {
-				event.preventDefault();
-				var now = new Date();
+			var sendTimer = null;
+
+			function readInputs() {
 				var hours = Number(hoursInput.value);
 				var windDownMins = Number(windDownInput.value);
-				var plan = calculatePlan(wakeInput.value, hours, windDownMins, now);
+				if (!wakeInput.value || !(hours > 0) || hoursInput.value === '' || windDownInput.value === '' || !(windDownMins >= 0)) return null;
+				return { wakeTime: wakeInput.value, hours: hours, windDownMins: windDownMins };
+			}
 
-				saveState({
-					wakeTime: wakeInput.value,
-					hours: hours,
-					windDownMins: windDownMins,
-					wakeAt: plan.wake.toISOString()
-				});
-				renderPlan(plan, now);
-				sendPlan(plan).catch(function (error) {
-					console.warn('Could not send plan', error);
-				});
-			});
-
-			bedNowButton.addEventListener('click', function () {
-				bedInput.value = toTimeValue(new Date());
-				reverseForm.requestSubmit();
-			});
-
-			reverseForm.addEventListener('submit', function (event) {
-				event.preventDefault();
+			function update(options) {
+				var inputs = readInputs();
+				if (!inputs) return;
 				var now = new Date();
-				renderReverse(nearestOccurrence(bedInput.value, now), Number(hoursInput.value), now);
-			});
+				var plan = calculatePlan(inputs.wakeTime, inputs.hours, inputs.windDownMins, now);
+				renderPlan(plan, now);
 
-			reminderForm.addEventListener('submit', function (event) {
+				if (options && options.save) {
+					saveState(Object.assign(inputs, { wakeAt: plan.wake.toISOString() }));
+					// Wait until you've stopped typing before telling the server.
+					clearTimeout(sendTimer);
+					sendTimer = setTimeout(function () {
+						sendPlan(plan).catch(warn('Could not send plan'));
+					}, 1500);
+				}
+			}
+
+			function onInput() {
+				update({ save: true });
+			}
+
+			planForm.addEventListener('submit', function (event) {
 				event.preventDefault();
-				var time = reminderInput.value;
-				reminderStatus.textContent = 'Saving…';
-				enableReminders(time)
+			});
+			wakeInput.addEventListener('input', onInput);
+			hoursInput.addEventListener('input', onInput);
+			windDownInput.addEventListener('input', onInput);
+
+			notifyAllow.addEventListener('click', function () {
+				notifyStatus.textContent = 'Turning on…';
+				enableReminders()
 					.then(function () {
-						saveState({ reminderTime: time });
+						saveState({ remindersOn: true, timeZone: currentTimeZone() });
 					})
 					.catch(function (error) {
 						alert(error.message);
 					})
-					.finally(refreshReminderStatus);
+					.finally(refreshNotifyStatus);
 			});
 
-			reminderOff.addEventListener('click', function () {
+			notifyOff.addEventListener('click', function () {
 				disableReminders()
 					.catch(function (error) {
 						console.warn('Could not unsubscribe', error);
 					})
 					.finally(function () {
-						saveState({ reminderTime: null });
-						refreshReminderStatus();
+						saveState({ remindersOn: false });
+						refreshNotifyStatus();
 					});
 			});
+
+			function warn(label) {
+				return function (error) {
+					console.warn(label, error);
+				};
+			}
 
 			function focusWakeInputIfFromReminder(url) {
 				if (new URL(url, location.href).searchParams.get('from') === 'reminder') wakeInput.focus();
@@ -363,23 +472,31 @@ const vapidPublicKey = import.meta.env.PUBLIC_VAPID_KEY ?? '';
 				if (state.windDownMins != null) windDownInput.value = state.windDownMins;
 
 				// Still before the alarm you set last time? Show that plan again.
-				if (state.wakeAt && new Date(state.wakeAt) > now) {
-					renderPlan(calculatePlan(state.wakeTime, state.hours, state.windDownMins, now), now);
-				}
+				if (state.wakeAt && new Date(state.wakeAt) > now) update();
+
+				// Keep the countdown current while the app is open.
+				setInterval(function () {
+					if (!planResult.hidden) update();
+				}, MINUTE);
+				document.addEventListener('visibilitychange', function () {
+					if (document.visibilityState === 'visible' && !planResult.hidden) update();
+				});
 
 				if ('serviceWorker' in navigator) {
 					navigator.serviceWorker.register('/sw.js')
-						.then(refreshReminderStatus)
-						.catch(function (error) {
-							console.warn('Service worker failed', error);
-						});
+						.then(refreshNotifyStatus)
+						.then(syncTimeZone)
+						.catch(warn('Service worker failed'));
 					navigator.serviceWorker.addEventListener('message', function (event) {
 						if (event.data && event.data.type === 'notification-click') focusWakeInputIfFromReminder(event.data.url);
 					});
 				}
 
 				focusWakeInputIfFromReminder(location.href);
-				refreshReminderStatus();
+				refreshNotifyStatus();
+				window.addEventListener('online', function () {
+					syncTimeZone().catch(warn('Could not update time zone'));
+				});
 			})();
 		</script>
 	</body>
