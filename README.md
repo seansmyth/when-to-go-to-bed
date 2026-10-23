@@ -1,7 +1,6 @@
 # When to go to bed
 
-A tiny PWA: tell it what time you're getting up, it tells you when to wind down and when to be asleep.
-It sends you a reminder at 8pm every day in your local time (it follows you if you change time zone), plus a "start winding down" nudge. Works offline once it has loaded.
+A tiny PWA: tell it what time you're getting up, it tells you when to wind down and when to be asleep. It sends you a reminder at 8pm every day in your local time (it follows you if you change time zone), plus a "start winding down" nudge. Works offline once it has loaded.
 
 ## How it fits together
 
@@ -12,14 +11,16 @@ It sends you a reminder at 8pm every day in your local time (it follows you if y
 
 Browsers can't schedule notifications for a set time by themselves, so the scheduled function does the timing and sends real Web Push.
 
+/.
+
 ## Setup
 
 1. `npm install`
 2. VAPID keys are in `.env`, which is gitignored. To make new ones, run `npx web-push generate-vapid-keys`.
 3. In Netlify → Site configuration → Environment variables, add these with scope **Builds + Functions**:
-   - `PUBLIC_VAPID_KEY`
-   - `VAPID_PRIVATE_KEY`
-   - `VAPID_SUBJECT`: a `mailto:` address or your site URL
+    - `PUBLIC_VAPID_KEY`
+    - `VAPID_PRIVATE_KEY`
+    - `VAPID_SUBJECT`: a `mailto:` address or your site URL
 4. Deploy. Netlify Blobs needs no setup.
 
 ## Local dev
