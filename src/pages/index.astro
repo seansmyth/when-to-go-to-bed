@@ -125,7 +125,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 				<h2>Tomorrow morning</h2>
 				<form id="plan-form">
 					<p>
-						<label for="wake-time">What time are you getting up?</label><br />
+						<label for="wake-time">Your wake up time</label><br />
 						<input type="time" id="wake-time" required />
 					</p>
 				</form>
@@ -372,7 +372,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 					headline.appendChild(el('span', 'summary-countdown', '(in ' + formatLongDuration(plan.windDown - now) + ')'));
 				}
 				summary.appendChild(headline);
-				summary.appendChild(el('p', 'summary-sub', 'Be asleep by ' + formatTime(plan.bed)));
+				summary.appendChild(el('p', 'summary-sub', 'To hopefully be asleep by ' + formatTime(plan.bed)));
 				var dstNote = clockChangeNote(plan, now);
 				if (dstNote) summary.appendChild(el('p', 'summary-note', dstNote));
 
