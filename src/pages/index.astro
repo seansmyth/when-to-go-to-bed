@@ -44,6 +44,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			.summary-main { margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
 			.summary-countdown { font-size: 1rem; font-weight: 400; opacity: 0.65; white-space: nowrap; }
 			.summary-sub { margin: 0.35rem 0 0; font-size: 1rem; opacity: 0.65; }
+			.summary-note { margin: 0.75rem 0 0; font-size: 0.85rem; line-height: 1.4; }
 
 			/* Bar segments are sized by duration; labels sit above/below at their start point. */
 			.timeline { margin: 1rem 0; }
@@ -272,6 +273,43 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 				return h + 'h' + (m ? ' ' + m + 'm' : '');
 			}
 
+			// Daylight saving: if the clocks change between now and the alarm, find when and which way.
+			// The browser's time zone data already knows the rules, so no API is needed.
+			function findClockChange(from, to) {
+				var start = from.getTime();
+				var end = to.getTime();
+				if (new Date(start).getTimezoneOffset() === new Date(end).getTimezoneOffset()) return null;
+
+				var startOffset = new Date(start).getTimezoneOffset();
+				while (end - start > MINUTE) {
+					var mid = start + Math.floor((end - start) / 2);
+					if (new Date(mid).getTimezoneOffset() === startOffset) start = mid;
+					else end = mid;
+				}
+
+				var change = new Date(end);
+				// getTimezoneOffset goes up when clocks go back (e.g. -60 → 0 in Ireland).
+				var minutes = change.getTimezoneOffset() - startOffset;
+				return {
+					at: change,
+					direction: minutes > 0 ? 'back' : 'forward',
+					minutes: Math.abs(minutes)
+				};
+			}
+
+			function clockChangeNote(plan, now) {
+				var change = findClockChange(now, plan.wake);
+				if (!change) return null;
+				var amount = change.minutes === 60 ? 'an hour' : formatLongDuration(change.minutes * MINUTE);
+				// The time as the clock read when it changed (2am going back, 1am going forward in Ireland):
+				// take the last minute before the change and add one, on a date with no clock change.
+				var before = new Date(change.at.getTime() - MINUTE);
+				var clockTime = new Date(2000, 0, 1, before.getHours(), before.getMinutes() + 1);
+				return 'Clocks go ' + change.direction + ' ' + amount + ' at ' + formatTime(clockTime) + ' tonight. These times already allow for it, so you still get ' +
+					formatLongDuration(plan.wake - plan.bed) + ' of sleep. Phones change their clock automatically, so your alarm still goes off at ' +
+					formatTime(plan.wake) + '.';
+			}
+
 			// "7 hours 9 mins", "1 hour", "45 mins"
 			function formatLongDuration(ms) {
 				var mins = Math.max(0, Math.round(ms / MINUTE));
@@ -335,6 +373,8 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 				}
 				summary.appendChild(headline);
 				summary.appendChild(el('p', 'summary-sub', 'Be asleep by ' + formatTime(plan.bed)));
+				var dstNote = clockChangeNote(plan, now);
+				if (dstNote) summary.appendChild(el('p', 'summary-note', dstNote));
 
 				var start = now.getTime();
 				var total = plan.wake - start;
@@ -458,8 +498,8 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 				await api('PUT', {
 					endpoint: subscription.endpoint,
 					windDownAt: plan.windDown > now ? plan.windDown.toISOString() : null,
-					windDownTitle: 'Wind down at ' + formatTime(plan.windDown),
-					windDownBody: 'Time to brush your teeth, put your phone away and read, or start your wind-down routine.'
+					windDownTitle: 'Time to start winding down',
+					windDownBody: 'Put your phone away, start reading, or whatever your routine is. Be asleep by ' + formatTime(plan.bed) + '.'
 				});
 			}
 
