@@ -1,6 +1,6 @@
 # When to go to bed
 
-A tiny PWA: tell it what time you're getting up, it tells you when to wind down and when to be asleep. It sends you a reminder at 8pm every day in your local time (it follows you if you change time zone), plus a "start winding down" nudge. Works offline once it has loaded.
+A tiny PWA: tell it what time you're getting up, it tells you when to wind down and when to be asleep. It sends you a reminder at 7:30pm every day in your local time (it follows you if you change time zone), plus a "start winding down" nudge. Works offline once it has loaded.
 
 ## How it fits together
 

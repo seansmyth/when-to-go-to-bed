@@ -156,7 +156,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 
 			<section class="card" id="reminder-card" hidden>
 				<h2>Daily reminder</h2>
-				<p>Get a nudge at 8pm every day (your local time) asking when you're up tomorrow.</p>
+				<p>Get a nudge at 7:30pm every day (your local time) asking when you're up tomorrow.</p>
 				<p id="notify-status">Checking…</p>
 				<p>
 					<button type="button" id="notify-allow" hidden>Allow notifications</button>
@@ -171,7 +171,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			var API = '/api/subscription';
 			var HOUR = 3600000;
 			var MINUTE = 60000;
-			var REMINDER_TIME = '20:00';
+			var REMINDER_TIME = '19:30';
 
 			var planForm = document.getElementById('plan-form');
 			var wakeInput = document.getElementById('wake-time');
@@ -534,7 +534,7 @@ for (var sh = 4; sh <= 12; sh++) sleepHourOptions.push(String(sh));
 			}
 
 			// Travelled since turning reminders on? Tell the server your new time zone
-			// so the reminder still lands at 8pm wherever you are.
+			// so the reminder still lands at 7:30pm wherever you are.
 			async function syncTimeZone() {
 				var state = loadState();
 				var timeZone = currentTimeZone();
